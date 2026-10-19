@@ -1,0 +1,350 @@
+import { invoke } from '@tauri-apps/api/core';
+import {
+  beginLibraryScanProgress,
+  resolveScanLibraryOptions,
+  startLibraryScanSession,
+} from './playerLibraryScan';
+import type { ScanLibraryOptions } from './playerLibraryScan';
+import type {
+  AlbumCatalogItem,
+  ArtistCatalogItem,
+  LibraryScanVisibility,
+  Song,
+} from '../types';
+import { useLibraryAllSongPathCache } from './useLibraryAllSongPathCache';
+import { useLibraryCollectionSongPathCache } from './useLibraryCollectionSongPathCache';
+import { useLibraryDetailSongPathCache } from './useLibraryDetailSongPathCache';
+import { useLibraryFolderSongPathCache } from './useLibraryFolderSongPathCache';
+import { useSettingsStore } from '../features/settings/store';
+import { useLibraryStore } from '../features/library/store';
+import { isProfilingEnabled } from '../utils/profiling';
+
+let hasBootstrappedLibrary = false;
+let libraryBootstrapPromise: Promise<void> | null = null;
+let libraryCacheLoadPromise: Promise<void> | null = null;
+let libraryRefreshPromise: Promise<void> | null = null;
+let queuedLibraryRefreshOptions: Required<ScanLibraryOptions> | null = null;
+let queuedLibraryRefreshPromise: Promise<void> | null = null;
+let libraryRefreshIdleId: number | null = null;
+let libraryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let libraryScanProfileId = 0;
+
+const BOOTSTRAP_SILENT_SCAN_DELAY_MS = 5000;
+const BOOTSTRAP_SILENT_SCAN_IDLE_TIMEOUT_MS = 2000;
+
+const LIBRARY_SCAN_VISIBILITY_PRIORITY: Record<LibraryScanVisibility, number> = {
+  silent: 1,
+  inline: 2,
+  hero: 3,
+};
+
+interface CreatePlayerLibraryRuntimeDeps {
+  fetchLibraryFolders: () => Promise<void>;
+  fetchFolderTree: () => Promise<void>;
+  flushBufferedLibraryScanBatch: () => void;
+  refreshStateSongReferences: (fallbackSongs?: Song[]) => void;
+  finalizeLibraryScanProgress: (
+    songs: ArrayLike<unknown>,
+    failed?: boolean,
+    message?: string,
+  ) => void;
+  onSilentScanError: (message: string) => void;
+}
+
+export const createPlayerLibraryRuntime = ({
+  fetchLibraryFolders,
+  fetchFolderTree,
+  flushBufferedLibraryScanBatch,
+  refreshStateSongReferences,
+  finalizeLibraryScanProgress,
+  onSilentScanError,
+}: CreatePlayerLibraryRuntimeDeps) => {
+  const libraryStore = useLibraryStore();
+  const settingsStore = useSettingsStore();
+  const { clearLibraryAllSongPathCache } = useLibraryAllSongPathCache();
+  const { clearLibraryCollectionSongPathCache } = useLibraryCollectionSongPathCache();
+  const { clearLibraryDetailSongPathCache } = useLibraryDetailSongPathCache();
+  const { clearLibraryFolderSongPathCache } = useLibraryFolderSongPathCache();
+
+  const clearLibraryPathCaches = () => {
+    clearLibraryAllSongPathCache();
+    clearLibraryCollectionSongPathCache();
+    clearLibraryDetailSongPathCache();
+    clearLibraryFolderSongPathCache();
+  };
+
+  const mergeQueuedScanOptions = (
+    current: Required<ScanLibraryOptions> | null,
+    next: Required<ScanLibraryOptions>,
+  ): Required<ScanLibraryOptions> => {
+    if (!current) {
+      return next;
+    }
+
+    return {
+      trigger:
+        next.trigger === 'bootstrap' && current.trigger !== 'bootstrap'
+          ? current.trigger
+          : next.trigger,
+      visibility:
+        LIBRARY_SCAN_VISIBILITY_PRIORITY[next.visibility] >= LIBRARY_SCAN_VISIBILITY_PRIORITY[current.visibility]
+          ? next.visibility
+          : current.visibility,
+      sourcePath: next.sourcePath || current.sourcePath,
+    };
+  };
+
+  const cancelScheduledLibraryRefresh = () => {
+    if (libraryRefreshTimer) {
+      clearTimeout(libraryRefreshTimer);
+      libraryRefreshTimer = null;
+    }
+    if (libraryRefreshIdleId !== null && 'cancelIdleCallback' in window) {
+      window.cancelIdleCallback(libraryRefreshIdleId);
+      libraryRefreshIdleId = null;
+    }
+    queuedLibraryRefreshOptions = null;
+  };
+
+  const loadLibrarySongsFromCache = async () => {
+    if (libraryCacheLoadPromise) {
+      if (isProfilingEnabled()) {
+        console.log('[Profiling] loadLibrarySongsFromCache joined in-flight request');
+      }
+      return libraryCacheLoadPromise;
+    }
+
+    const profileStart = isProfilingEnabled() ? performance.now() : 0;
+    const startVersion = libraryStore.libraryDataVersion;
+
+    libraryCacheLoadPromise = (async () => {
+      try {
+        flushBufferedLibraryScanBatch();
+        const cachedEntries = await invoke<Array<string | { path: string }>>('get_library_song_paths_cached');
+        const paths = cachedEntries
+          .map(entry => typeof entry === 'string' ? entry : entry.path)
+          .filter(Boolean);
+        libraryStore.setCanonicalSongOrder(paths);
+        libraryStore.setSourceSongOrder(paths);
+
+        if (libraryStore.libraryDataVersion !== startVersion) {
+          clearLibraryPathCaches();
+        }
+        await fetchFolderTree();
+        if (isProfilingEnabled()) {
+          console.log(
+            `[Profiling] loadLibrarySongsFromCache took ${(performance.now() - profileStart).toFixed(2)}ms (songs: ${paths.length})`,
+          );
+        }
+      } catch (error) {
+        console.error('Failed to load cached library songs:', error);
+      } finally {
+        libraryCacheLoadPromise = null;
+      }
+    })();
+
+    return libraryCacheLoadPromise;
+  };
+
+  const loadLibraryCatalogsFromCache = async () => {
+    const profileStart = isProfilingEnabled() ? performance.now() : 0;
+    try {
+      const [artists, albums] = await Promise.all([
+        invoke<ArtistCatalogItem[]>('get_library_artist_catalog'),
+        invoke<AlbumCatalogItem[]>('get_library_album_catalog'),
+      ]);
+
+      libraryStore.setArtistCatalog(artists);
+      libraryStore.setAlbumCatalog(albums);
+      if (isProfilingEnabled()) {
+        console.log(
+          `[Profiling] loadLibraryCatalogsFromCache took ${(performance.now() - profileStart).toFixed(2)}ms (artists: ${artists.length}, albums: ${albums.length})`,
+        );
+      }
+    } catch (error) {
+      console.error('Failed to load cached library catalogs:', error);
+    }
+  };
+
+  const scanLibrary = async (options: ScanLibraryOptions = {}) => {
+    const resolvedOptions = resolveScanLibraryOptions(options);
+    const profileId = ++libraryScanProfileId;
+    const profileStart = isProfilingEnabled() ? performance.now() : 0;
+
+    if (isProfilingEnabled()) {
+      console.log(
+        `[Profiling] scanLibrary#${profileId} start (trigger: ${resolvedOptions.trigger}, visibility: ${resolvedOptions.visibility}, folders: ${libraryStore.libraryFolders.length}, songs: ${libraryStore.canonicalSongPaths.length})`,
+      );
+    }
+
+    if (libraryRefreshPromise) {
+      startLibraryScanSession(resolvedOptions);
+      queuedLibraryRefreshOptions = mergeQueuedScanOptions(queuedLibraryRefreshOptions, resolvedOptions);
+
+      if (!queuedLibraryRefreshPromise) {
+        queuedLibraryRefreshPromise = libraryRefreshPromise
+          .then(async () => {
+            while (queuedLibraryRefreshOptions) {
+              const nextOptions = queuedLibraryRefreshOptions;
+              queuedLibraryRefreshOptions = null;
+              await scanLibrary(nextOptions);
+            }
+          })
+          .finally(() => {
+            queuedLibraryRefreshPromise = null;
+          });
+      }
+
+      return queuedLibraryRefreshPromise;
+    }
+
+    cancelScheduledLibraryRefresh();
+
+    if (libraryStore.libraryFolders.length === 0) {
+      flushBufferedLibraryScanBatch();
+      libraryStore.setLibrarySongs([]);
+      libraryStore.setSourceSongs([]);
+      libraryStore.setLibraryHierarchy([]);
+      libraryStore.setArtistCatalog([]);
+      libraryStore.setAlbumCatalog([]);
+      clearLibraryPathCaches();
+      refreshStateSongReferences([]);
+      libraryStore.setLibraryScanSession(null);
+      libraryStore.setLibraryScanProgress(null);
+      libraryStore.setLastLibraryScanError(null);
+      if (isProfilingEnabled()) {
+        console.log(
+          `[Profiling] scanLibrary#${profileId} skipped empty library in ${(performance.now() - profileStart).toFixed(2)}ms`,
+        );
+      }
+      return Promise.resolve();
+    }
+
+    const session = startLibraryScanSession(resolvedOptions);
+    beginLibraryScanProgress(session);
+    libraryStore.setLastLibraryScanError(null);
+    const scanStartLibraryDataVersion = libraryStore.libraryDataVersion;
+
+    libraryRefreshPromise = (async () => {
+      try {
+        const scanEntries = await invoke<Array<string | { path: string }>>('scan_library', {
+          minimumDurationSeconds: settingsStore.settings.libraryMinDurationSeconds,
+        });
+        const paths = scanEntries
+          .map(entry => typeof entry === 'string' ? entry : entry.path)
+          .filter(Boolean);
+        libraryStore.setCanonicalSongOrder(paths);
+        libraryStore.setSourceSongOrder(paths);
+
+        if (libraryStore.libraryDataVersion !== scanStartLibraryDataVersion) {
+          clearLibraryPathCaches();
+        }
+        await Promise.all([
+          fetchLibraryFolders(),
+          fetchFolderTree(),
+          loadLibraryCatalogsFromCache(),
+        ]);
+
+        if (!libraryStore.libraryScanProgress?.done) {
+          finalizeLibraryScanProgress(paths);
+        }
+        if (isProfilingEnabled()) {
+          console.log(
+            `[Profiling] scanLibrary#${profileId} completed in ${(performance.now() - profileStart).toFixed(2)}ms (songs: ${paths.length})`,
+          );
+        }
+      } catch (error) {
+        console.error('Library scan failed:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        libraryStore.setLastLibraryScanError(errorMessage);
+        finalizeLibraryScanProgress([], true, errorMessage || '扫描音乐库时出现问题');
+        if (session.visibility === 'silent') {
+          onSilentScanError(errorMessage);
+        }
+        if (isProfilingEnabled()) {
+          console.log(
+            `[Profiling] scanLibrary#${profileId} failed in ${(performance.now() - profileStart).toFixed(2)}ms`,
+          );
+        }
+      } finally {
+        libraryRefreshPromise = null;
+      }
+    })();
+
+    return libraryRefreshPromise;
+  };
+
+  const scheduleLibraryRefresh = () => {
+    if (libraryRefreshPromise || libraryRefreshIdleId !== null || libraryRefreshTimer) {
+      return;
+    }
+
+    if (!settingsStore.settings.autoScanLibraryOnStartup) {
+      if (isProfilingEnabled()) {
+        console.log('[Profiling] skipped bootstrap library refresh because autoScanLibraryOnStartup is disabled');
+      }
+      return;
+    }
+
+    if (libraryStore.libraryFolders.length === 0) {
+      return;
+    }
+
+    const runRefresh = () => {
+      libraryRefreshIdleId = null;
+      libraryRefreshTimer = null;
+      if (isProfilingEnabled()) {
+        console.log('[Profiling] scheduled bootstrap library refresh fired');
+      }
+      void scanLibrary({ trigger: 'bootstrap', visibility: 'silent' });
+    };
+
+    libraryRefreshTimer = setTimeout(() => {
+      libraryRefreshTimer = null;
+      if ('requestIdleCallback' in window) {
+        libraryRefreshIdleId = window.requestIdleCallback(runRefresh, {
+          timeout: BOOTSTRAP_SILENT_SCAN_IDLE_TIMEOUT_MS,
+        });
+        return;
+      }
+
+      runRefresh();
+    }, BOOTSTRAP_SILENT_SCAN_DELAY_MS);
+  };
+
+  const bootstrapLibrary = async () => {
+    if (hasBootstrappedLibrary) return;
+    hasBootstrappedLibrary = true;
+    const profileStart = isProfilingEnabled() ? performance.now() : 0;
+
+    if (isProfilingEnabled()) {
+      console.log('[Profiling] bootstrapLibrary start');
+    }
+
+    if (!libraryBootstrapPromise) {
+      libraryBootstrapPromise = (async () => {
+        await Promise.all([
+          loadLibrarySongsFromCache(),
+          loadLibraryCatalogsFromCache(),
+          fetchLibraryFolders(),
+        ]);
+        scheduleLibraryRefresh();
+      })();
+    }
+
+    await libraryBootstrapPromise;
+    if (isProfilingEnabled()) {
+      console.log(
+        `[Profiling] bootstrapLibrary completed in ${(performance.now() - profileStart).toFixed(2)}ms (songs: ${libraryStore.canonicalSongPaths.length}, folders: ${libraryStore.libraryFolders.length})`,
+      );
+    }
+  };
+
+  return {
+    bootstrapLibrary,
+    loadLibraryCatalogsFromCache,
+    loadLibrarySongsFromCache,
+    scanLibrary,
+    dispose: cancelScheduledLibraryRefresh,
+  };
+};

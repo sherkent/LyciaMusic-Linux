@@ -1,0 +1,69 @@
+Lycia Player for Linux is a community Linux port fork of the
+original Lycia Player (Windows-focused) by Billy636.
+
+Upstream project:
+https://github.com/Billy636/LyciaMusic
+
+Fork notice:
+- This repository is a modified version of the upstream work,
+  redistributed under the same GNU Affero General Public License
+  v3.0 (AGPL-3.0-only), as required by the upstream license.
+- Modifications carried by this fork (Linux platform adaptations,
+  per AGPL-3.0 Section 5 "prominent notices" requirement):
+  * Media controls via MPRIS/D-Bus (souvlaki) replacing Windows SMTC
+  * Credential storage via Secret Service (keyring linux-native)
+  * RPM bundle packaging support
+  * Taskbar playback control degraded to a free floating widget
+  * Asset protocol scope fix for covers under dotted directories
+  * Automatic WEBKIT_DISABLE_COMPOSITING_MODE under WSL (WSLg)
+  * Update check endpoints repointed from the upstream release
+    channels to this fork's GitHub Releases
+- The original application, its logo, illustrations and screenshots
+  remain copyrighted by the upstream authors. Windows users should
+  prefer the upstream project.
+
+中文说明（Fork 归属）：
+本仓库是 Billy636 开发的 Lycia Player（面向 Windows）的社区 Linux
+移植分支，依照上游许可证要求以相同的 AGPL-3.0-only 协议再分发。
+本分支所做的 Linux 平台适配（MPRIS 媒体控制、Secret Service 凭据
+存储、RPM 打包、播控悬浮窗、封面加载修复、WSLg 兼容、更新检查
+指向本仓库 Releases 等）如上所列。原始应用及其 Logo、插图、截图
+等资产的版权归上游作者所有；Windows 用户请优先使用上游项目。
+
+AMLL attribution (upstream notice, unchanged):
+Lycia Player includes lyrics-related code and adaptations based on the
+AMLL project (Apple Music-like Lyrics).
+
+Upstream project:
+https://github.com/amll-dev/applemusic-like-lyrics
+
+License notice:
+- This repository is distributed under the GNU Affero General Public
+  License v3.0. See LICENSE for the full text.
+- The lyrics-related implementation, including the AMLL integration and
+  local patches under src/lib/amll/, is kept under AGPL-3.0-compatible
+  terms to preserve upstream copyleft obligations.
+- If you convey modified versions of this software, you must also make
+  the corresponding source code available under the same license terms.
+
+Additional attribution:
+- AMLL project authors and contributors retain copyright over their
+  original work.
+- Lycia Player-specific modifications remain identified in this
+  repository and should keep existing attribution and license notices.
+- Song switching transition animation in player details (PR #80)
+  contributed by sherkent (VeilCode).
+
+中文说明：
+Lycia Player 的歌词相关实现使用并改编了 AMLL（Apple Music-like Lyrics）
+项目的部分代码与设计思路。
+播放详情页切歌平滑过渡动效（PR #80）由 sherkent (VeilCode) 贡献。
+
+上游项目地址：
+https://github.com/amll-dev/applemusic-like-lyrics
+
+许可说明：
+- 本仓库整体按 GNU Affero General Public License v3.0 发布，完整文本见 LICENSE。
+- 与歌词相关的 AMLL 集成及本地补丁代码（例如 src/lib/amll/）按 AGPL-3.0
+  兼容要求保留版权声明与传染性条款。
+- 重新分发或发布修改版本时，应同时提供对应源代码并继续遵循相同许可要求。
