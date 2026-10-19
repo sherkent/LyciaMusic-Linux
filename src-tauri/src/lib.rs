@@ -93,15 +93,17 @@ pub fn run() {
 
     #[cfg(target_os = "linux")]
     {
-        // WSLg 下 WebKitGTK 加速合成器退化为软件光栅化（无 GPU 合成），
-        // 页面失效会触发整页 tile 重光栅化 + backdrop-filter 全量重算，
-        // 16 个光栅化线程满载数秒、UI 冻结（如设置-快捷键页点击捕获框即卡死）。
-        // WSL 环境禁用合成器走非合成渲染路径，实测可完全消除该冻结。
-        let in_wsl = std::env::var_os("WSL_DISTRO_NAME").is_some()
-            || std::fs::read_to_string("/proc/sys/kernel/osrelease")
-                .map(|v| v.to_lowercase().contains("microsoft"))
-                .unwrap_or(false);
-        if in_wsl {
+        // WebKitGTK 在软件渲染环境（WSLg、无 GPU 虚拟机）下的渲染问题实测：
+        // 1. DMABUF 渲染器（默认开启）：交互触发整页重光栅化，UI 冻结数秒，
+        //    且界面更新闪屏；
+        // 2. 合成器 + 禁 DMABUF：缓冲提交损坏，出现大块透明/消失区域；
+        // 3. 非合成模式 + 不透明窗口：渲染最稳定——配合
+        //    tauri.linux.conf.json 将窗口 transparent 关闭，GTK 恢复内置
+        //    双缓冲，重绘不再闪烁；无合成也消除了冻结与缓冲损坏问题。
+        // 若外部已显式设置相关环境变量则尊重用户配置，便于按环境覆盖。
+        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none()
+            && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         }
     }
