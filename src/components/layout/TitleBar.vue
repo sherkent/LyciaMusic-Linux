@@ -11,7 +11,7 @@ import { useLibrarySearchIndex } from '../../composables/useLibrarySearchIndex';
 
 const router = useRouter();
 const route = useRoute();
-const { searchQuery, setSearch, isMiniMode } = usePlayerViewState();
+const { searchQuery, setSearch } = usePlayerViewState();
 const appWindow = getCurrentWindow();
 const TITLE_BAR_CONTROL_SELECTOR = 'button, a, input, select, textarea, [role="button"]';
 const { settings } = useSettings();
@@ -204,14 +204,6 @@ const goBack = () => { router.back(); };
       </button>
       <div class="h-4 w-px bg-gray-400/30 mx-2"></div>
       <div class="flex items-center gap-1">
-        <button type="button" @click.stop="isMiniMode = true" class="p-2 text-gray-900 dark:text-gray-100 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-md transition-colors cursor-pointer" title="Mini 模式">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <!-- 左上角带缺口的外侧大矩形 -->
-            <path d="M13 6H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V13" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            <!-- 左上角的实心嵌套小矩形 (7x5) -->
-            <rect x="4" y="6" width="7" height="5" rx="1" fill="currentColor" />
-          </svg>
-        </button>
         <button
           v-if="settings.showTaskbarPlayerIcon"
           type="button"

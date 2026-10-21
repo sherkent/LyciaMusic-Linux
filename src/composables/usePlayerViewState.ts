@@ -2,17 +2,14 @@ import { storeToRefs } from 'pinia';
 import { useCollectionsStore } from '../features/collections/store';
 import { useLibraryStore } from '../features/library/store';
 import { useNavigationStore } from '../shared/stores/navigation';
-import { useUiStore } from '../shared/stores/ui';
 
 export function usePlayerViewState() {
   const collectionsStore = useCollectionsStore();
   const libraryStore = useLibraryStore();
   const navigationStore = useNavigationStore();
-  const uiStore = useUiStore();
   const collectionsRefs = storeToRefs(collectionsStore);
   const libraryRefs = storeToRefs(libraryStore);
   const navigationRefs = storeToRefs(navigationStore);
-  const uiRefs = storeToRefs(uiStore);
 
   const setFolderSortMode = (mode: 'title' | 'name' | 'artist' | 'track_number' | 'added_at' | 'added_at_asc' | 'custom') => {
     libraryRefs.folderSortMode.value = mode;
@@ -32,7 +29,6 @@ export function usePlayerViewState() {
 
   return {
     ...navigationRefs,
-    isMiniMode: uiRefs.isMiniMode,
     folderSortMode: libraryRefs.folderSortMode,
     localSortMode: libraryRefs.localSortMode,
     albumDetailSortMode: libraryRefs.albumDetailSortMode,

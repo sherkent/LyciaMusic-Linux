@@ -6,7 +6,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import ModernModal from '../common/ModernModal.vue';
 import SponsorModal from './SponsorModal.vue';
-import { compareVersions, fetchLatestRelease } from '../../utils/update';
+import { compareVersions, fetchLatestRelease, isLinuxPlatform } from '../../utils/update';
 
 const REPO_OWNER = 'sherkent';
 const REPO_NAME = 'LyciaMusic-Linux';
@@ -23,13 +23,16 @@ const dialogTitle = ref('');
 const dialogContent = ref('');
 const dialogConfirmText = ref('确定');
 const dialogCancelText = ref('取消');
-const dialogAction = ref<'close' | 'open-release'>('close');
+const dialogAction = ref<'close' | 'open-release' | 'download-linux'>('close');
 const dialogOpenUrl = ref(RELEASES_URL);
+const dialogDownloadUrl = ref('');
 const updateChoiceVisible = ref(false);
 const updateChoiceTitle = ref('');
 const updateChoiceContent = ref('');
 const updateOfficialUrl = ref('');
 const updateGithubUrl = ref(GITHUB_LATEST_RELEASE_URL);
+const updateOfficialLabel = ref('从官网下载');
+const updateGithubLabel = ref('从 GitHub 下载');
 
 const isDownloading = ref(false);
 const downloadProgress = ref(0);
@@ -50,7 +53,7 @@ function showDialog(options: {
   content: string;
   confirmText: string;
   cancelText: string;
-  action?: 'close' | 'open-release';
+  action?: 'close' | 'open-release' | 'download-linux';
 }) {
   dialogTitle.value = options.title;
   dialogContent.value = options.content;
@@ -84,11 +87,15 @@ function showUpdateChoice(options: {
   content: string;
   officialUrl: string;
   githubUrl?: string;
+  officialLabel?: string;
+  githubLabel?: string;
 }) {
   updateChoiceTitle.value = options.title;
   updateChoiceContent.value = options.content;
   updateOfficialUrl.value = options.officialUrl;
   updateGithubUrl.value = options.githubUrl ?? GITHUB_LATEST_RELEASE_URL;
+  updateOfficialLabel.value = options.officialLabel ?? '从官网下载';
+  updateGithubLabel.value = options.githubLabel ?? '从 GitHub 下载';
   updateChoiceVisible.value = true;
 }
 
@@ -121,6 +128,42 @@ async function handleCheckUpdate() {
           githubUrl: `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/V${latestRelease.version}/Lycia.Player_${latestRelease.version}_x64-setup-portable.exe`
         });
         return;
+      }
+
+      // Linux：从 Release 资产中挑选 deb / AppImage，支持应用内下载安装，
+      // 而不是只能跳转浏览器手动下载。
+      if (isLinuxPlatform()) {
+        const findAsset = (ext: 'deb' | 'appimage') =>
+          latestRelease.assets?.find(asset => asset.name.toLowerCase().endsWith(`.${ext}`));
+
+        const debAsset = findAsset('deb');
+        const appImageAsset = findAsset('appimage');
+
+        if (debAsset && appImageAsset) {
+          showUpdateChoice({
+            title: '发现新版本',
+            content: `当前版本：v${appVersion.value}；最新版本：v${latestRelease.version}${publishedText}。请选择安装包格式：deb 适合 Debian/Ubuntu 等发行版，AppImage 免安装、可自动自更新。`,
+            officialUrl: debAsset.url,
+            githubUrl: appImageAsset.url,
+            officialLabel: '下载 deb 安装包',
+            githubLabel: '下载 AppImage'
+          });
+          return;
+        }
+
+        const linuxAsset = debAsset ?? appImageAsset;
+        if (linuxAsset) {
+          dialogDownloadUrl.value = linuxAsset.url;
+          dialogOpenUrl.value = latestRelease.url;
+          showDialog({
+            title: '发现新版本',
+            content: `当前版本：v${appVersion.value}；最新版本：v${latestRelease.version}${publishedText}。\n安装包：${linuxAsset.name}。是否直接下载并安装？`,
+            confirmText: '下载并安装',
+            cancelText: '前往 Releases',
+            action: 'download-linux'
+          });
+          return;
+        }
       }
 
       showDialog({
@@ -168,7 +211,20 @@ async function handleDialogConfirm() {
 
   if (dialogAction.value === 'open-release') {
     await openUrl(dialogOpenUrl.value);
+  } else if (dialogAction.value === 'download-linux') {
+    await startDownload(dialogDownloadUrl.value);
   }
+}
+
+async function handleDialogCancel() {
+  // Linux 应用内下载的取消路径：引导用户到 Releases 页面手动下载。
+  if (dialogAction.value === 'download-linux') {
+    await openUrl(dialogOpenUrl.value);
+  }
+}
+
+function isLinuxPackageUrl(url: string): boolean {
+  return /\.(deb|rpm|appimage)(\?|#|$)/i.test(url);
 }
 
 async function startDownload(url: string) {
@@ -182,7 +238,7 @@ async function startDownload(url: string) {
     unlisten = await listen<any>('update-download-progress', (event) => {
       const payload = event.payload;
       downloadProgress.value = Math.round(payload.progress);
-      
+
       const speedInMB = payload.speed / (1024 * 1024);
       if (speedInMB >= 1.0) {
         downloadSpeedText.value = `${speedInMB.toFixed(2)} MB/s`;
@@ -196,10 +252,19 @@ async function startDownload(url: string) {
     });
 
     const filePath = await invoke<string>('download_update_file', { url });
-    
+
     downloadStatusText.value = '下载完成，正在启动安装程序...';
     await invoke('run_installer', { path: filePath });
-    await invoke('exit_app');
+
+    // Windows：交给安装器后退出应用。
+    // Linux deb/rpm：已交给系统软件中心，保持应用运行（升级不打断当前播放，
+    // 重启应用即进入新版本）。
+    // Linux AppImage：自更新依赖旧进程退出后由看护进程拉起新版本，必须退出。
+    if (!isLinuxPackageUrl(url) || /\.appimage(\?|#|$)/i.test(url)) {
+      await invoke('exit_app');
+    } else {
+      downloadStatusText.value = '已在系统软件中心打开安装器，请按提示完成安装。';
+    }
   } catch (error) {
     console.error('Download failed:', error);
     showDialog({
@@ -223,7 +288,7 @@ async function handleDownloadChoice(target: 'official' | 'github') {
   const targetUrl = target === 'official' ? updateOfficialUrl.value : updateGithubUrl.value;
 
   if (targetUrl) {
-    if (isTauri() && (targetUrl.endsWith('.exe') || targetUrl.includes('/releases/download/'))) {
+    if (isTauri() && (targetUrl.endsWith('.exe') || isLinuxPackageUrl(targetUrl) || targetUrl.includes('/releases/download/'))) {
       await startDownload(targetUrl);
     } else {
       await openUrl(targetUrl);
@@ -317,6 +382,7 @@ onMounted(() => {
       :confirm-text="dialogConfirmText"
       :cancel-text="dialogCancelText"
       @confirm="handleDialogConfirm"
+      @cancel="handleDialogCancel"
     />
 
     <SponsorModal
@@ -350,14 +416,14 @@ onMounted(() => {
               class="inline-flex w-full justify-center rounded-xl border border-transparent bg-blue-600 px-4 py-2 text-base font-medium text-white shadow-sm transition-all duration-200 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm"
               @click="handleDownloadChoice('official')"
             >
-              从官网下载
+              {{ updateOfficialLabel }}
             </button>
             <button
               type="button"
               class="inline-flex w-full justify-center rounded-xl border border-gray-300 bg-white px-4 py-2 text-base font-medium text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:text-sm"
               @click="handleDownloadChoice('github')"
             >
-              从 GitHub 下载
+              {{ updateGithubLabel }}
             </button>
           </div>
         </div>

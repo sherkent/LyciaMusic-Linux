@@ -84,7 +84,6 @@ describe('player playback domain', () => {
       windowFocused: true,
       windowVisible: true,
       windowMinimized: false,
-      miniMode: false,
     });
   });
 

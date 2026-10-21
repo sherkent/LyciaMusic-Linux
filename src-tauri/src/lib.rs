@@ -18,7 +18,9 @@ mod window_material;
 mod window_theme;
 mod window_z_order;
 
-use app_runtime::{consume_pending_open_paths, exit_app, handle_single_instance, setup_app};
+use app_runtime::{
+    consume_pending_open_paths, exit_app, handle_single_instance, is_tray_available, setup_app,
+};
 use custom_background::prepare_custom_background_image;
 use custom_fonts::{import_lyrics_font, read_lyrics_font_data_url};
 use database::clear_all_app_data;
@@ -76,11 +78,30 @@ use toolbox::{
 
 #[cfg(target_os = "windows")]
 use toolbox::{append_webview2_browser_arg, should_disable_gpu_for_startup};
-use window_boundary::{set_mini_boundary_enabled, set_retain_material_on_unfocus};
+use window_boundary::set_retain_material_on_unfocus;
 use window_fullscreen::set_immersive_fullscreen;
 use window_material::get_window_material_capabilities;
 use window_theme::set_dark_mode_for_window;
 use window_z_order::{refresh_current_window_topmost, start_topmost_guard, stop_topmost_guard};
+
+#[cfg(target_os = "linux")]
+fn set_glib_identity(name: &str) {
+    use std::ffi::CString;
+
+    extern "C" {
+        fn g_set_prgname(prgname: *const std::os::raw::c_char);
+        fn g_set_application_name(application_name: *const std::os::raw::c_char);
+    }
+
+    // GLib 在首次调用后持有字符串副本；任何失败都只是回退到默认身份，
+    // 不影响启动。
+    if let Ok(c_name) = CString::new(name) {
+        unsafe {
+            g_set_prgname(c_name.as_ptr());
+            g_set_application_name(c_name.as_ptr());
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -106,6 +127,14 @@ pub fn run() {
         {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         }
+
+        // 对齐窗口身份与桌面入口：GTK 在 Wayland 上用 prgname 作为 app_id、
+        // 在 X11 上用它推导 WM_CLASS。不设置时默认是二进制名（lycia_music），
+        // 与桌面文件 "Lycia Player.desktop" 无法匹配，导致 GNOME/KDE 的任务
+        // 栏与 Dock 无法把窗口关联到应用图标。必须在 gtk_init 之前设置
+        // （Tauri 在 Builder 内部才会初始化 GTK），直接走 libglib FFI 避免
+        // 额外引入 gtk-rs 依赖。
+        set_glib_identity("Lycia Player");
     }
 
     tauri::Builder::default()
@@ -123,7 +152,6 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&[
                     "desktop-lyrics",
-                    "mini-player",
                     "taskbar-player",
                     "tray-menu",
                 ])
@@ -245,7 +273,6 @@ pub fn run() {
             open_external_program,
             file_exists,
             refresh_folder_songs,
-            set_mini_boundary_enabled,
             set_retain_material_on_unfocus,
             get_window_material_capabilities,
             get_foreground_fullscreen_state,
@@ -255,6 +282,7 @@ pub fn run() {
             start_topmost_guard,
             stop_topmost_guard,
             consume_pending_open_paths,
+            is_tray_available,
             get_system_fonts,
             import_lyrics_font,
             read_lyrics_font_data_url,

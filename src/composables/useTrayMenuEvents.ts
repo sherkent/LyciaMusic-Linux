@@ -150,7 +150,7 @@ export function useTrayMenuEvents(router: Router) {
   const playbackStore = usePlaybackStore();
   const uiStore = useUiStore();
   const { playMode } = storeToRefs(playbackStore);
-  const { isMiniMode, skipNextPageTransition } = storeToRefs(uiStore);
+  const { skipNextPageTransition } = storeToRefs(uiStore);
 
   let unlistenTrayMenu: UnlistenFn | null = null;
   let unlistenTrayMenuOpen: UnlistenFn | null = null;
@@ -221,7 +221,6 @@ export function useTrayMenuEvents(router: Router) {
           togglePlay,
           nextSong,
           playMode,
-          isMiniMode,
           showDesktopLyrics,
           revealMainWindow,
           openSettings,

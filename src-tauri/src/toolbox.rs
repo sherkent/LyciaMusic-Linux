@@ -386,6 +386,35 @@ pub struct DownloadProgress {
     pub speed: f64,
 }
 
+/// 从更新包 URL 推导保存的文件名。
+///
+/// Linux 发行产物是 .deb / .AppImage / .rpm（Windows 是 .exe），不能沿用
+/// Windows 版写死的 `Lycia.Player_Setup.exe`——否则 Linux 上下载的 deb 会被
+/// 存成 .exe，后续 `run_installer` 与用户感知全部错位。
+fn derive_download_file_name(url: &str) -> String {
+    const KNOWN_PACKAGE_EXTS: [&str; 7] = [
+        ".exe", ".msi", ".deb", ".rpm", ".appimage", ".tar.gz", ".pacman",
+    ];
+
+    let clean_path = url.split(['?', '#']).next().unwrap_or(url);
+    let file_name = clean_path.rsplit('/').next().unwrap_or(clean_path);
+    let lower_name = file_name.to_lowercase();
+
+    if !file_name.is_empty() && KNOWN_PACKAGE_EXTS.iter().any(|ext| lower_name.ends_with(ext)) {
+        file_name.to_string()
+    } else {
+        "Lycia.Player_Setup.exe".to_string()
+    }
+}
+
+/// 判断是否为 Windows 安装包（deb/rpm 环境下应直接拒绝执行）。
+fn is_windows_installer_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|ext| ext.to_str()),
+        Some(ext) if ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("msi")
+    )
+}
+
 #[tauri::command]
 pub async fn download_update_file(
     app_handle: tauri::AppHandle,
@@ -422,15 +451,7 @@ pub async fn download_update_file(
         .download_dir()
         .map_err(|e| e.to_string())?;
 
-    let filename = if url.ends_with(".exe") {
-        if url.contains("portable") {
-            "Lycia.Player_Setup_Portable.exe"
-        } else {
-            "Lycia.Player_Setup_Standard.exe"
-        }
-    } else {
-        "Lycia.Player_Setup.exe"
-    };
+    let filename = derive_download_file_name(&url);
     let dest_path = download_dir.join(filename);
 
     let mut file = File::create(&dest_path)
@@ -485,22 +506,169 @@ pub async fn download_update_file(
 
 #[tauri::command]
 pub fn run_installer(path: String) -> Result<(), String> {
-    use std::process::Command;
-
     #[cfg(target_os = "windows")]
     {
+        use std::process::Command;
+
         Command::new("cmd")
             .args(&["/C", "start", "", &path])
             .spawn()
             .map_err(|e| format!("启动安装程序失败: {e}"))?;
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new(&path)
-            .spawn()
-            .map_err(|e| format!("启动安装程序失败: {e}"))?;
+        linux_run_installer(std::path::PathBuf::from(path))
+    }
+}
+
+/// Linux 安装/升级入口。
+///
+/// - deb / rpm：交给桌面环境的软件中心（GNOME Software、KDE Discover、
+///   GNOME 桌面下的 qapt 等）通过 xdg-open/gio 打开，由它完成 pkexec 提权
+///   与依赖解析；应用自身绝不直接以 root 执行 dpkg/rpm。
+/// - AppImage：设置可执行位后执行自更新——用下载文件原子替换 `$APPIMAGE`
+///   指向的旧文件（POSIX rename 允许替换运行中的可执行文件），再由一个
+///   与本进程解耦的 shell 等待旧进程退出后拉起新版本。直接 spawn 新实例
+///   会被 single-instance 插件当作重复启动拦截，因此必须先退出旧进程。
+#[cfg(not(target_os = "windows"))]
+fn linux_run_installer(installer_path: std::path::PathBuf) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
+
+    if is_windows_installer_file(&installer_path) {
+        return Err(
+            "Windows 安装包无法在 Linux 上安装，请从 Releases 页面下载 .deb 或 .AppImage".into(),
+        );
     }
 
+    if !installer_path.exists() {
+        return Err(format!("安装包不存在: {}", installer_path.display()));
+    }
+
+    let extension = installer_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if matches!(extension.as_str(), "deb" | "rpm") {
+        let mut last_error = None;
+        for opener in ["xdg-open", "gio"] {
+            let mut command = Command::new(opener);
+            if opener == "gio" {
+                command.arg("open");
+            }
+            command.arg(&installer_path);
+            match command.spawn() {
+                Ok(_) => return Ok(()),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        return Err(format!(
+            "无法调用系统安装器（xdg-open/gio 均不可用）：{:?}。可手动执行 \
+             `sudo apt install \"{}\"` 或 `sudo dpkg -i \"{}\"`",
+            last_error,
+            installer_path.display(),
+            installer_path.display()
+        ));
+    }
+
+    let is_appimage = extension == "appimage"
+        || installer_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_lowercase().contains("appimage"))
+            .unwrap_or(false);
+
+    std::fs::set_permissions(&installer_path, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| format!("设置可执行权限失败: {e}"))?;
+
+    let launch_target = if is_appimage {
+        match std::env::var_os("APPIMAGE").map(std::path::PathBuf::from) {
+            Some(current_appimage) => {
+                // 自更新：先把下载文件落到旧 AppImage 同目录（保证同一文件
+                // 系统，rename 才是原子替换），再覆盖旧文件。
+                let staged = current_appimage.with_extension("appimage.new");
+                let _ = std::fs::remove_file(&staged);
+                std::fs::copy(&installer_path, &staged)
+                    .map_err(|e| format!("暂存新版本失败: {e}"))?;
+                std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
+                    .map_err(|e| format!("设置可执行权限失败: {e}"))?;
+                std::fs::rename(&staged, &current_appimage)
+                    .map_err(|e| format!("替换旧版本失败: {e}"))?;
+                let _ = std::fs::remove_file(&installer_path);
+                current_appimage
+            }
+            None => installer_path,
+        }
+    } else {
+        // 未知格式（tar.gz 等）：不擅自执行，交还用户处理。
+        return Err(format!(
+            "暂不支持自动安装该文件格式（.{extension}），请手动安装后重启应用"
+        ));
+    };
+
+    let old_pid = std::process::id();
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "while kill -0 {old_pid} 2>/dev/null; do sleep 0.3; done; exec \"$1\""
+        ))
+        .arg("sh")
+        .arg(&launch_target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("启动更新任务失败: {e}"))?;
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derives_file_name_from_update_url() {
+        assert_eq!(
+            derive_download_file_name(
+                "https://github.com/a/b/releases/download/v1.4.0/Lycia.Player_1.4.0_amd64.deb"
+            ),
+            "Lycia.Player_1.4.0_amd64.deb"
+        );
+        assert_eq!(
+            derive_download_file_name(
+                "https://gh-proxy.com/https://github.com/a/b/releases/download/v2.0.0/Lycia-Player_2.0.0_amd64.AppImage?token=x#y"
+            ),
+            "Lycia-Player_2.0.0_amd64.AppImage"
+        );
+        assert_eq!(
+            derive_download_file_name("https://example.com/lycia/Lycia.Player_Setup_Standard.exe"),
+            "Lycia.Player_Setup_Standard.exe"
+        );
+        // 未知扩展名回退到 Windows 默认名，保持旧行为。
+        assert_eq!(
+            derive_download_file_name("https://example.com/no-extension"),
+            "Lycia.Player_Setup.exe"
+        );
+    }
+
+    #[test]
+    fn detects_windows_installers() {
+        assert!(is_windows_installer_file(std::path::Path::new(
+            "downloads/Lycia.Player_Setup.exe"
+        )));
+        assert!(is_windows_installer_file(std::path::Path::new(
+            "downloads/setup.MSI"
+        )));
+        assert!(!is_windows_installer_file(std::path::Path::new(
+            "downloads/Lycia.Player_1.4.0_amd64.deb"
+        )));
+        assert!(!is_windows_installer_file(std::path::Path::new(
+            "downloads/Lycia.Player.AppImage"
+        )));
+    }
 }

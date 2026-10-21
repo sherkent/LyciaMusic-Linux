@@ -8,7 +8,6 @@ const createDeps = (): TrayMenuActionDeps => ({
   togglePlay: vi.fn().mockResolvedValue(undefined),
   nextSong: vi.fn(),
   playMode: ref(0),
-  isMiniMode: ref(false),
   showDesktopLyrics: ref(false),
   revealMainWindow: vi.fn().mockResolvedValue(undefined),
   openSettings: vi.fn().mockResolvedValue(undefined),
@@ -32,12 +31,10 @@ describe('tray menu actions', () => {
     const deps = createDeps();
 
     await handleTrayMenuAction('play-mode-shuffle', deps);
-    await handleTrayMenuAction('show-mini-player', deps);
     await handleTrayMenuAction('open-desktop-lyrics', deps);
     await handleTrayMenuAction('open-settings', deps);
 
     expect(deps.playMode.value).toBe(2);
-    expect(deps.isMiniMode.value).toBe(false);
     expect(deps.showDesktopLyrics.value).toBe(true);
     expect(deps.revealMainWindow).toHaveBeenCalledTimes(1);
     expect(deps.openSettings).toHaveBeenCalledTimes(1);

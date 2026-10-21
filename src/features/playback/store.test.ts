@@ -43,11 +43,9 @@ describe('playback and ui stores', () => {
 
     uiStore.showQueue = true;
     uiStore.dominantColors = ['#111111', '#222222', '#333333', '#444444'];
-    uiStore.isMiniMode = true;
 
     expect(uiStore.showQueue).toBe(true);
     expect(uiStore.dominantColors).toEqual(['#111111', '#222222', '#333333', '#444444']);
-    expect(uiStore.isMiniMode).toBe(true);
   });
 
   it('keeps playback and ui state scoped to their dedicated stores', () => {

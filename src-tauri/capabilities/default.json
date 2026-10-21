@@ -5,7 +5,6 @@
   "windows": [
     "main",
     "desktop-lyrics",
-    "mini-player",
     "tray-menu",
     "taskbar-player"
   ],

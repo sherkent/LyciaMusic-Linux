@@ -17,7 +17,6 @@ const Toast = defineAsyncComponent(() => import('../common/Toast.vue'));
 const SongInfoModal = defineAsyncComponent(() => import('../overlays/SongInfoModal.vue'));
 
 const {
-  isMiniMode,
   isExternalDragActive,
   libraryScanProgress,
   libraryScanPhaseLabel,
@@ -93,12 +92,12 @@ useDesktopLyricsWindowBridge();
     class="flex flex-col h-screen w-full text-gray-800 dark:text-gray-200 relative overflow-hidden font-sans"
   >
     <transition name="window-restore">
-      <GlobalBackground v-if="!isMiniMode" />
+      <GlobalBackground />
     </transition>
 
     <transition name="startup-composition-mask">
       <div
-        v-if="startupCompositionMaskVisible && !isMiniMode"
+        v-if="startupCompositionMaskVisible"
         class="startup-composition-mask fixed inset-0 z-[10000] pointer-events-none overflow-hidden"
       >
         <div class="startup-composition-mask__grain"></div>
@@ -126,7 +125,7 @@ useDesktopLyricsWindowBridge();
 
     <transition name="drop-overlay">
       <div
-        v-if="isExternalDragActive && !isMiniMode"
+        v-if="isExternalDragActive"
         class="absolute inset-0 z-[140] pointer-events-none flex items-center justify-center bg-black/15 backdrop-blur-sm"
       >
         <div class="rounded-[28px] border border-white/35 bg-white/75 px-8 py-6 text-center shadow-[0_24px_60px_rgba(0,0,0,0.2)] dark:border-white/10 dark:bg-black/65">
@@ -138,7 +137,7 @@ useDesktopLyricsWindowBridge();
 
     <transition name="scan-progress">
       <div
-        v-if="libraryScanProgress && !isMiniMode"
+        v-if="libraryScanProgress"
         class="hidden absolute right-4 top-14 z-[145] w-[320px] overflow-hidden rounded-[22px] border border-white/45 bg-white/82 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:border-white/10 dark:bg-black/70"
       >
         <div class="flex items-start justify-between gap-3">
@@ -176,7 +175,6 @@ useDesktopLyricsWindowBridge();
     </transition>
 
     <div
-      v-if="!isMiniMode"
       class="flex-1 flex overflow-hidden relative z-10 transition-colors duration-500"
       :class="mainContainerClass"
       :style="{ backdropFilter: mainBlurStyle }"
@@ -206,7 +204,7 @@ useDesktopLyricsWindowBridge();
     </div>
 
     <div
-      v-if="!isMiniMode && isFooterVisible"
+      v-if="isFooterVisible"
       class="relative z-[60] transition-colors duration-500"
       :class="footerContainerClass"
       :style="{ backdropFilter: footerBlurStyle }"
@@ -218,10 +216,10 @@ useDesktopLyricsWindowBridge();
       </transition>
     </div>
 
-    <PlayQueueSidebar v-if="!isMiniMode && isPlayQueueMounted" />
+    <PlayQueueSidebar v-if="isPlayQueueMounted" />
 
     <AddToPlaylistModal
-      v-if="!isMiniMode && showAddToPlaylistModal"
+      v-if="showAddToPlaylistModal"
       :visible="showAddToPlaylistModal"
       :selectedCount="playlistAddTargetSongs.length"
       @close="closeAddToPlaylistDialog"
@@ -229,7 +227,7 @@ useDesktopLyricsWindowBridge();
     />
 
     <SongInfoModal
-      v-if="!isMiniMode && isSongInfoVisible"
+      v-if="isSongInfoVisible"
       :visible="isSongInfoVisible"
       :song="currentSongInfo"
       @close="closeSongInfo"

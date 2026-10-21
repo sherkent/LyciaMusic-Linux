@@ -2,7 +2,6 @@
 import {
   Check,
   ChevronRight,
-  Minimize2,
   Music2,
   Pause,
   Play,
@@ -203,13 +202,6 @@ onUnmounted(() => {
         <ChevronRight class="row-chevron" :size="18" :stroke-width="2.2" />
       </button>
 
-      <button class="menu-row" @mouseenter="closePlayModeMenu" @click="sendAction('show-mini-player')">
-        <span class="row-icon">
-          <Minimize2 :size="18" :stroke-width="2.15" />
-        </span>
-        <span class="row-label">mini窗口</span>
-      </button>
-
       <div class="menu-divider" />
 
       <button class="menu-row" @mouseenter="closePlayModeMenu" @click="sendAction('open-desktop-lyrics')">
@@ -261,7 +253,7 @@ onUnmounted(() => {
   --hover-bg: rgba(255, 255, 255, 0.075);
 
   width: 330px;
-  height: 273px;
+  height: 234px;
   padding: 0;
   overflow: hidden;
   background: transparent;

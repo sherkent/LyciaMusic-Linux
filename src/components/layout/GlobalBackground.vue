@@ -21,7 +21,7 @@ import {
 import { useCustomBackgroundPreviewState } from '../../composables/customBackgroundPreviewState';
 import { FIXED_FLOW_PRESET } from '../../constants/themeBackground';
 
-const { currentCover, currentCoverFull, dominantColors, showPlayerDetail, isMiniMode } = usePlayer();
+const { currentCover, currentCoverFull, dominantColors, showPlayerDetail } = usePlayer();
 const { theme, isDarkTheme, patchTheme } = useThemeSettings();
 const { activeWindowMaterial } = useWindowMaterial();
 const { loadFullCover } = useCoverCache();
@@ -235,7 +235,7 @@ const customMediaSrc = computed(() => {
 });
 
 const shouldSuspendCustomVideo = computed(() => (
-  isMainWindowLowPower.value || isCustomBackgroundPreviewOpen.value || isMiniMode.value
+  isMainWindowLowPower.value || isCustomBackgroundPreviewOpen.value
 ));
 const customVideoPlaybackSrc = computed(() => (
   renderedCustomMedia.value?.mediaType === 'video' && !shouldSuspendCustomVideo.value
@@ -566,14 +566,6 @@ watch(
   { immediate: true },
 );
 
-watch(isMiniMode, async (mini, prevMini) => {
-  if (prevMini && !mini) {
-    await nextTick();
-    updateContainerSize();
-    setTimeout(updateContainerSize, 100);
-  }
-});
-
 onMounted(() => {
   updateContainerSize();
   window.addEventListener('resize', updateContainerSize);
@@ -745,7 +737,7 @@ const customBgTransform = computed(() => {
 
     <transition name="fade">
       <div
-        v-if="activeBackgroundInfo?.type === 'custom' && customMediaSrc && !isMiniMode"
+        v-if="activeBackgroundInfo?.type === 'custom' && customMediaSrc"
         class="absolute inset-0 global-background-container overflow-hidden"
       >
         <div

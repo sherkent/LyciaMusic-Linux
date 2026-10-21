@@ -29,10 +29,10 @@ describe('resolveTrayMenuPosition', () => {
     ]);
 
     // Tray click inside taskbar (y = 1056)
-    // preferAboveY = 1056 - 273 - 6 = 777
+    // preferAboveY = 1056 - 234 - 6 = 816
     const result = await resolveTrayMenuPosition({ x: 1800, y: 1056 });
 
-    expect(result.position.y).toBe(777);
+    expect(result.position.y).toBe(816);
     expect(result.position.y + TRAY_MENU_WINDOW_HEIGHT).toBe(1050); // 6px above cursor at 1056
   });
 
@@ -51,10 +51,10 @@ describe('resolveTrayMenuPosition', () => {
     ]);
 
     // Physical click inside taskbar: y = 1584 -> clickY = 1056 logical px
-    // preferAboveY = 1056 - 273 - 6 = 777 logical px
+    // preferAboveY = 1056 - 234 - 6 = 816 logical px
     const result = await resolveTrayMenuPosition({ x: 2700, y: 1584 });
 
-    expect(result.position.y).toBe(777);
+    expect(result.position.y).toBe(816);
     expect(result.position.y + TRAY_MENU_WINDOW_HEIGHT).toBe(1050);
   });
 });

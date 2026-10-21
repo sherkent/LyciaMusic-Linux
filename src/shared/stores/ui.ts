@@ -8,7 +8,6 @@ export const useUiStore = defineStore('ui', () => {
   const showMiniPlaylist = ref(false);
   const showPlayerDetail = ref(false);
   const showQueue = ref(false);
-  const isMiniMode = ref(false);
   const showVolumePopover = ref(false);
   const skipNextPageTransition = ref(false);
   const startupCompositionMaskVisible = ref(false);
@@ -19,7 +18,6 @@ export const useUiStore = defineStore('ui', () => {
     showMiniPlaylist,
     showPlayerDetail,
     showQueue,
-    isMiniMode,
     showVolumePopover,
     skipNextPageTransition,
     startupCompositionMaskVisible,

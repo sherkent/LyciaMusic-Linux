@@ -10,7 +10,7 @@ export const TRAY_MENU_PANEL_WIDTH = 190;
 export const TRAY_MENU_SUBMENU_WIDTH = 132;
 export const TRAY_MENU_SUBMENU_GAP = 8;
 export const TRAY_MENU_WINDOW_WIDTH = TRAY_MENU_PANEL_WIDTH + TRAY_MENU_SUBMENU_WIDTH + TRAY_MENU_SUBMENU_GAP;
-export const TRAY_MENU_WINDOW_HEIGHT = 273;
+export const TRAY_MENU_WINDOW_HEIGHT = 234;
 
 export type TrayMenuSubmenuPlacement = 'left' | 'right';
 
@@ -21,7 +21,6 @@ export type TrayMenuAction =
   | 'play-mode-list-loop'
   | 'play-mode-single-loop'
   | 'play-mode-shuffle'
-  | 'show-mini-player'
   | 'open-desktop-lyrics'
   | 'open-settings'
   | 'quit';
@@ -45,7 +44,6 @@ export interface TrayMenuActionDeps {
   togglePlay: () => void | Promise<unknown>;
   nextSong: () => void;
   playMode: Ref<number>;
-  isMiniMode: Ref<boolean>;
   showDesktopLyrics: Ref<boolean>;
   revealMainWindow: () => Promise<unknown>;
   openSettings: () => Promise<unknown>;
@@ -72,14 +70,10 @@ export async function handleTrayMenuAction(action: TrayMenuAction, deps: TrayMen
     case 'play-mode-shuffle':
       deps.playMode.value = 2;
       break;
-    case 'show-mini-player':
-      deps.isMiniMode.value = true;
-      break;
     case 'open-desktop-lyrics':
       deps.showDesktopLyrics.value = true;
       break;
     case 'open-settings':
-      deps.isMiniMode.value = false;
       await deps.openSettings();
       await deps.revealMainWindow();
       break;

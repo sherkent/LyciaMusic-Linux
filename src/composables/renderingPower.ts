@@ -1,16 +1,19 @@
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, type Window } from '@tauri-apps/api/window';
-import { storeToRefs } from 'pinia';
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
 
 import { setLibrarySongPathCacheLowPower } from '../caches/librarySongPathCache';
-import { useUiStore } from '../shared/stores/ui';
 
 export interface MainWindowRenderingSnapshot {
   documentHidden: boolean;
   windowFocused: boolean;
   windowVisible: boolean;
   windowMinimized: boolean;
-  miniMode: boolean;
 }
 
 const defaultSnapshot = (): MainWindowRenderingSnapshot => ({
@@ -18,7 +21,6 @@ const defaultSnapshot = (): MainWindowRenderingSnapshot => ({
   windowFocused: true,
   windowVisible: true,
   windowMinimized: false,
-  miniMode: false,
 });
 
 const mainWindowRenderingSnapshot = ref<MainWindowRenderingSnapshot>(defaultSnapshot());
@@ -26,8 +28,7 @@ const mainWindowRenderingSnapshot = ref<MainWindowRenderingSnapshot>(defaultSnap
 export function resolveMainWindowLowPower(snapshot: MainWindowRenderingSnapshot) {
   return snapshot.documentHidden
     || !snapshot.windowVisible
-    || snapshot.windowMinimized
-    || snapshot.miniMode;
+    || snapshot.windowMinimized;
 }
 
 export function setMainWindowRenderingSnapshot(patch: Partial<MainWindowRenderingSnapshot>) {
@@ -58,7 +59,59 @@ export function useRenderingPower() {
   };
 }
 
+let trayAvailabilityCache: { value: boolean; expiresAt: number } | null = null;
+
+/**
+ * 当前会话是否支持系统托盘。
+ *
+ * Linux 上托盘依赖 `org.kde.StatusNotifierWatcher`：KDE Plasma / Cinnamon /
+ * XFCE 原生提供，GNOME 需要安装 AppIndicator 扩展。结果做 30 秒缓存（探测
+ * 是一次 D-Bus 往返，且用户中途装扩展的场景以分钟计），查询失败时保守地
+ * 视为可用以维持既有行为。
+ */
+export async function isTrayAvailable(): Promise<boolean> {
+  const now = Date.now();
+  if (trayAvailabilityCache && trayAvailabilityCache.expiresAt > now) {
+    return trayAvailabilityCache.value;
+  }
+
+  try {
+    const value = await invoke<boolean>('is_tray_available');
+    trayAvailabilityCache = { value, expiresAt: now + 30_000 };
+    return value;
+  } catch {
+    return true;
+  }
+}
+
+let noTraySupportNotified = false;
+
+async function warnNoTraySupport() {
+  if (noTraySupportNotified) return;
+  noTraySupportNotified = true;
+  try {
+    let permissionGranted = await isPermissionGranted();
+    if (!permissionGranted) {
+      permissionGranted = (await requestPermission()) === 'granted';
+    }
+    if (permissionGranted) {
+      sendNotification({
+        title: 'Lycia Player',
+        body: '当前桌面环境不支持系统托盘（GNOME 需启用 AppIndicator 扩展），已直接退出。',
+      });
+    }
+  } catch {}
+}
+
 export async function hideMainWindowToTray(appWindow: Window = getCurrentWindow()) {
+  // 托盘不可用的环境里"隐藏到托盘"会制造一个既看不见又无法退出的后台
+  // 进程（任务栏没有窗口、托盘没有图标）。降级为真正退出，避免应用失控。
+  if (!(await isTrayAvailable())) {
+    await warnNoTraySupport();
+    await appWindow.destroy();
+    return;
+  }
+
   await appWindow.hide();
   setMainWindowRenderingSnapshot({
     documentHidden: true,
@@ -70,7 +123,6 @@ export async function hideMainWindowToTray(appWindow: Window = getCurrentWindow(
 
 export function useMainWindowRenderingPower() {
   const appWindow = getCurrentWindow();
-  const { isMiniMode } = storeToRefs(useUiStore());
   const unlisteners: Array<() => void> = [];
 
   const syncDocumentVisibility = () => {
@@ -119,14 +171,6 @@ export function useMainWindowRenderingPower() {
     window.removeEventListener('blur', syncWindowState);
     unlisteners.splice(0).forEach((unlisten) => unlisten());
   });
-
-  watch(
-    isMiniMode,
-    (miniMode) => {
-      setMainWindowRenderingSnapshot({ miniMode });
-    },
-    { immediate: true },
-  );
 
   return useRenderingPower();
 }

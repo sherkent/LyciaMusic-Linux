@@ -14,5 +14,15 @@
         "center": true
       }
     ]
+  },
+  "bundle": {
+    "linux": {
+      "deb": {
+        "desktopTemplate": "./debian/desktop.hbs",
+        "postInstallScript": "./debian/postinst.sh",
+        "preRemoveScript": "./debian/prerm.sh",
+        "postRemoveScript": "./debian/postrm.sh"
+      }
+    }
   }
 }

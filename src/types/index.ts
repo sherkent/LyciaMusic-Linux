@@ -426,7 +426,6 @@ export type ShortcutActionId =
   | 'nextSong'
   | 'volumeUp'
   | 'volumeDown'
-  | 'toggleMiniMode'
   | 'toggleFavorite'
   | 'addSongHighlight'
   | 'playSongHighlight'

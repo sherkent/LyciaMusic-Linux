@@ -137,7 +137,8 @@ describe("fetchLatestRelease", () => {
       url: "https://github.com/Billy636/LyciaMusic/releases/tag/v1.4.0",
       publishedAt: "2026-05-08T00:00:00Z",
       notes: "新增 GitHub 更新通道",
-      source: "github"
+      source: "github",
+      assets: []
     });
     expect(invokeMock).toHaveBeenCalledWith('check_update_by_rust', { source: 'github' });
   });
@@ -167,7 +168,8 @@ describe("fetchLatestRelease", () => {
       url: "https://github.com/Billy636/LyciaMusic/releases/tag/v1.4.0",
       publishedAt: "2026-05-08T00:00:00Z",
       notes: "新增 GitHub 更新通道",
-      source: "github"
+      source: "github",
+      assets: []
     });
     expect(fetchMock).toHaveBeenCalledWith("https://api.github.com/repos/Billy636/LyciaMusic/releases/latest", {
       headers: {

@@ -5,6 +5,11 @@ export const OFFICIAL_LATEST_RELEASE_URL = 'https://api.github.com/repos/sherken
 
 type ReleaseSource = 'official' | 'github';
 
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+}
+
 export interface ReleaseInfo {
   version: string;
   url: string;
@@ -13,6 +18,7 @@ export interface ReleaseInfo {
   publishedAt?: string;
   notes?: string;
   source?: ReleaseSource;
+  assets?: ReleaseAsset[];
 }
 
 export function extractVersion(value: string): string {
@@ -127,11 +133,30 @@ export async function fetchLatestRelease(owner: string, repo: string): Promise<R
     throw new Error('Latest release version is missing');
   }
 
+  // GitHub Releases 的资产列表：Linux 上的应用内更新需要从中挑选
+  // .deb / .AppImage 等安装包，而不是像 Windows 一样硬编码 .exe 链接。
+  const assets: ReleaseAsset[] = Array.isArray(payload.assets)
+    ? payload.assets
+      .filter((asset: any) => asset && typeof asset.name === 'string'
+        && typeof asset.browser_download_url === 'string')
+      .map((asset: any) => ({ name: asset.name as string, url: asset.browser_download_url as string }))
+    : [];
+
   return {
     version,
     url: typeof payload.html_url === 'string' ? payload.html_url : `https://github.com/${owner}/${repo}/releases`,
     publishedAt: typeof payload.published_at === 'string' ? payload.published_at : undefined,
     notes: typeof payload.body === 'string' ? payload.body : undefined,
-    source: 'github'
+    source: 'github',
+    assets
   };
+}
+
+/**
+ * 是否运行在 Linux 桌面（依据 WebView UA，Tauri + WebKitGTK 恒含 "Linux"）。
+ * 用于更新流程在 Windows（.exe 安装器）与 Linux（deb/AppImage）之间分流。
+ */
+export function isLinuxPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return navigator.userAgent.includes('Linux');
 }

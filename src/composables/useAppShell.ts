@@ -5,7 +5,6 @@ import { usePlayer } from './player';
 import { useAppThemeSync } from './useAppThemeSync';
 import { useExternalPathBridge } from './useExternalPathBridge';
 import { useAppShellTheme } from './useAppShellTheme';
-import { useMiniPlayerWindowBridge } from './useMiniPlayerWindowBridge';
 import { useTaskbarPlayerBridge } from './useTaskbarPlayerBridge';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { useTrayMenuEvents } from './useTrayMenuEvents';
@@ -27,7 +26,6 @@ export function useAppShell() {
     init,
     playQueuePaths,
     currentSong,
-    isMiniMode,
     showPlayerDetail,
     handleExternalPaths,
     libraryScanProgress,
@@ -112,7 +110,6 @@ export function useAppShell() {
     searchQuery,
   });
 
-  useMiniPlayerWindowBridge();
   useTaskbarPlayerBridge();
   useKeyboardShortcuts();
   useTrayMenuEvents(router);
@@ -155,7 +152,6 @@ export function useAppShell() {
   };
 
   return {
-    isMiniMode,
     showPlayerDetail,
     isExternalDragActive,
     libraryScanProgress,

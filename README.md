@@ -43,7 +43,7 @@
   - **安全并发控制**：在 Rust 后端扫描大型音乐库时，采用信号量（Semaphore）对元数据和封面处理进行节流，有效抑制 CPU 突发飙升。
 
 * 🛠️ **系统原生整合**
-  - **系统集成**：支持 MPRIS 媒体控制协议（GNOME/KDE 等桌面环境的媒体通知与媒体按键响应）、系统托盘快速操作。
+  - **系统集成**：支持 MPRIS 媒体控制协议（GNOME/KDE 等桌面环境的媒体通知与媒体按键响应）、系统托盘快速操作（Linux 上基于 StatusNotifierItem 原生菜单，兼容 KDE Plasma、GNOME（需 AppIndicator 扩展）、Cinnamon、XFCE，Wayland/X11 通用）。
   - **无缝本地管理**：提供高性能的本地音频文件扫描、标签元数据读取和物理文件重命名与整理。
   - **高级交互体验**：自研智能边界检测的上下文菜单，禁用浏览器默认右键行为，提供真正的原生应用质感。
   - **桌面歌词悬浮窗**：轻量化、高性能的桌面浮窗歌词，支持锁定、穿透与自定义样式。
@@ -72,7 +72,10 @@
 | 能力 | 说明 |
 | :--- | :--- |
 | **MPRIS 媒体控制** | 通过 D-Bus MPRIS2 协议对接桌面环境（替代 Windows 的 SMTC），支持系统媒体面板与媒体按键 |
+| **系统托盘** | 基于 StatusNotifierItem/libappindicator 的原生托盘菜单（tray-icon 在 Linux 上不产生点击事件，自绘菜单不可用），兼容 KDE Plasma、GNOME（需 AppIndicator 扩展）、Cinnamon、XFCE；托盘不可用时"关闭到托盘"自动降级为退出，避免残留不可恢复的后台进程 |
 | **凭据安全存储** | WebDAV 等凭据改用 Secret Service（GNOME Keyring / KWallet）存储（替代 Windows 凭据管理器） |
+| **deb 安装/卸载生命周期** | 自定义 desktop 文件（StartupWMClass 与窗口身份对齐、MimeType 音频文件关联、`%F` 文件打开参数）；postinst 刷新 desktop/mime/icon 缓存；prerm 在卸载时优雅终止实例（升级不打断播放）；postrm 保留用户数据 |
+| **应用内更新（Linux）** | 检查本仓库 Releases 并直接下载 deb / AppImage 安装包：deb/rpm 交由系统软件中心安装，AppImage 支持自动自更新（原子替换后拉起新版本） |
 | **RPM 打包** | 支持 `--bundles rpm` 产出 Fedora / openSUSE 安装包（15MB 左右） |
 | **播控悬浮窗** | 原版依赖 Win32 任务栏几何 API 的任务栏播控，在 Linux 下降级为右下角自由悬浮窗，支持拖拽与位置记忆 |
 | **封面加载修复** | 修复 Tauri asset protocol 在 Unix 上因 `require_literal_leading_dot` 导致 `~/.local/share` 等点目录下的封面无法显示的问题 |
@@ -83,7 +86,6 @@
 | 功能 | 现状 |
 | :--- | :--- |
 | 系统字体枚举 | Linux 上暂为空实现（自定义字体选择不可用） |
-| 应用内自动更新 | 更新检查指向本仓库 Releases，应用内下载安装器仅限 Windows，Linux 请手动下载安装包 |
 | WASAPI 独占输出 | Windows 专属特性，Linux 使用 ALSA/PulseAudio 默认输出 |
 | 全屏时任务栏自动隐藏 | 依赖 Windows 前台窗口检测，Linux 上不可用 |
 | Lyricify 歌词集成 | 依赖 Windows 窗口机制，Linux 上不可用 |

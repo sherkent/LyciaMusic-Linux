@@ -744,7 +744,6 @@ function createPlayerCore() {
   const appShellDomain = {
     init,
     playQueue: playbackRefs.playQueue,
-    isMiniMode: uiRefs.isMiniMode,
     showPlayerDetail: uiRefs.showPlayerDetail,
     showMiniPlaylist: uiRefs.showMiniPlaylist,
     showPlaylist: uiRefs.showPlaylist,

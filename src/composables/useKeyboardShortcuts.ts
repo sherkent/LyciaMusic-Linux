@@ -18,7 +18,7 @@ import {
 } from '../features/settings/shortcuts';
 import type { ShortcutActionId, ShortcutSettings } from '../types';
 import { useLyrics } from './lyrics';
-import { useUiStore } from '../shared/stores/ui';
+
 import { useToast } from './toast';
 import { toggleMainWindowVisibility } from './mainWindowVisibility';
 
@@ -70,7 +70,6 @@ export function useKeyboardShortcuts() {
   const { currentSong, volume, togglePlay, nextSong, prevSong, handleVolume } = usePlaybackController();
   const { toggleFavorite } = useLibraryCollections();
   const { showDesktopLyrics, desktopLyricsSettings } = useLyrics();
-  const uiStore = useUiStore();
   const { showToast } = useToast();
   const { addAtCurrentTime, playPrimary, errorMessage } = useSongHighlights();
 
@@ -108,9 +107,6 @@ export function useKeyboardShortcuts() {
     nextSong: () => nextSong(),
     volumeUp: () => updateVolume(5),
     volumeDown: () => updateVolume(-5),
-    toggleMiniMode: () => {
-      uiStore.isMiniMode = !uiStore.isMiniMode;
-    },
     toggleFavorite: () => {
       if (currentSong.value) {
         toggleFavorite(currentSong.value);
