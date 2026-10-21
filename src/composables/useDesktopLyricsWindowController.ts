@@ -152,10 +152,14 @@ export function useDesktopLyricsWindowController(options: {
 
     let lastTime = performance.now();
     const tick = (now: number) => {
-      if (isPlaying.value) {
-        playbackTime.value += (now - lastTime) / 1000;
+      // 暂停时彻底停下帧循环，避免 60fps 空转；恢复播放由下方
+      // watch(isPlaying) 统一重启，保证状态机闭环。
+      if (!isPlaying.value) {
+        frameId = 0;
+        return;
       }
 
+      playbackTime.value += (now - lastTime) / 1000;
       lastTime = now;
       frameId = requestAnimationFrame(tick);
     };
@@ -169,6 +173,14 @@ export function useDesktopLyricsWindowController(options: {
       frameId = 0;
     }
   }
+
+  watch(isPlaying, (playing) => {
+    if (playing) {
+      startPlaybackClock();
+    } else {
+      stopPlaybackClock();
+    }
+  });
 
   function startAutoHideLoop() {
     stopAutoHideLoop();

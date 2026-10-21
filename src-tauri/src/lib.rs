@@ -103,6 +103,21 @@ fn set_glib_identity(name: &str) {
     }
 }
 
+/// 检测是否运行在 WSL（含 WSLg）环境。
+///
+/// WSL 必然设置 `WSL_DISTRO_NAME`/`WSL_INTEROP`；环境变量被清理的极端情况
+/// 回退到内核版本串中的 "microsoft" 标记（WSL1/2 内核均带此标识）。
+#[cfg(target_os = "linux")]
+fn is_wsl() -> bool {
+    if std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSL_INTEROP").is_some() {
+        return true;
+    }
+
+    std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|release| release.to_ascii_lowercase().contains("microsoft"))
+        .unwrap_or(false)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -114,15 +129,20 @@ pub fn run() {
 
     #[cfg(target_os = "linux")]
     {
-        // WebKitGTK 在软件渲染环境（WSLg、无 GPU 虚拟机）下的渲染问题实测：
+        // WebKitGTK 在 WSLg（软件光栅化）下的渲染问题实测：
         // 1. DMABUF 渲染器（默认开启）：交互触发整页重光栅化，UI 冻结数秒，
         //    且界面更新闪屏；
         // 2. 合成器 + 禁 DMABUF：缓冲提交损坏，出现大块透明/消失区域；
         // 3. 非合成模式 + 不透明窗口：渲染最稳定——配合
         //    tauri.linux.conf.json 将窗口 transparent 关闭，GTK 恢复内置
         //    双缓冲，重绘不再闪烁；无合成也消除了冻结与缓冲损坏问题。
-        // 若外部已显式设置相关环境变量则尊重用户配置，便于按环境覆盖。
-        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none()
+        // 上述问题仅出现在 WSLg 的软件渲染路径；实体 Linux 桌面（有 GPU）
+        // 不应受此牵连——那里保持 WebKitGTK 默认的 GPU 加速合成与 DMABUF
+        // 渲染器，CSS 动画/变换可卸载到显卡，显著降低 CPU 占用。
+        // 若外部已显式设置相关环境变量则尊重用户配置，便于按环境覆盖
+        // （无 GPU 的虚拟机等场景可手动 export WEBKIT_DISABLE_COMPOSITING_MODE=1）。
+        if is_wsl()
+            && std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none()
             && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
         {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
